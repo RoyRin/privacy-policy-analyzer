@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy Analyzer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f7;
+            color: #1d1d1f;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 840px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+        }
+        .subtitle {
+            color: #6e6e73;
+            margin-bottom: 2rem;
+        }
+
+        /* Input section */
+        .input-card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 2rem;
+        }
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 1.2rem;
+            border-bottom: 2px solid #e5e5e5;
+        }
+        .tab {
+            padding: 0.6rem 1.2rem;
+            cursor: pointer;
+            font-weight: 500;
+            color: #6e6e73;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+        .tab.active {
+            color: #0071e3;
+            border-bottom-color: #0071e3;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .input-row {
+            display: flex;
+            gap: 0.75rem;
+        }
+        .input-row input[type="text"] {
+            flex: 1;
+            padding: 0.65rem 1rem;
+            border: 1.5px solid #d2d2d7;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .input-row input[type="text"]:focus {
+            border-color: #0071e3;
+        }
+        .file-label {
+            display: block;
+            margin-bottom: 0.75rem;
+            color: #6e6e73;
+            font-size: 0.9rem;
+        }
+        input[type="file"] { margin-bottom: 1rem; }
+        .btn {
+            padding: 0.65rem 1.5rem;
+            background: #0071e3;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #0077ed; }
+        .btn:disabled {
+            background: #a1a1a6;
+            cursor: not-allowed;
+        }
+
+        /* Loading */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        .loading.active { display: block; }
+        .spinner {
+            width: 36px; height: 36px;
+            border: 3px solid #e5e5e5;
+            border-top-color: #0071e3;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Error */
+        .error-msg {
+            display: none;
+            background: #fff2f2;
+            border: 1px solid #ffcccc;
+            color: #cc0000;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+        .error-msg.active { display: block; }
+
+        /* Results */
+        #results { display: none; }
+        #results.active { display: block; }
+
+        .overall {
+            background: #fff;
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+        .score-circle {
+            width: 90px; height: 90px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 700;
+            color: #fff;
+            flex-shrink: 0;
+        }
+        .overall-text { flex: 1; }
+        .overall-text h2 { font-size: 1.1rem; margin-bottom: 0.3rem; }
+        .overall-text p { color: #6e6e73; font-size: 0.9rem; }
+
+        .categories {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        @media (max-width: 600px) {
+            .categories { grid-template-columns: 1fr; }
+            .overall { flex-direction: column; text-align: center; }
+        }
+        .cat-card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 1.2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        .cat-card h3 {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #6e6e73;
+            margin-bottom: 0.5rem;
+        }
+        .cat-score {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 0.4rem;
+        }
+        .score-bar {
+            height: 6px;
+            background: #e5e5e5;
+            border-radius: 3px;
+            margin-bottom: 0.6rem;
+            overflow: hidden;
+        }
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.6s ease;
+        }
+        .cat-card p { font-size: 0.85rem; color: #6e6e73; }
+
+        /* Detail breakdown */
+        .details {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        .details-header {
+            padding: 1rem 1.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .details-header:hover { background: #fafafa; }
+        .details-body { display: none; }
+        .details-body.open { display: block; }
+        .q-item {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #f0f0f0;
+        }
+        .q-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.3rem;
+        }
+        .q-question { font-weight: 500; font-size: 0.92rem; }
+        .q-score { font-weight: 700; font-size: 0.92rem; white-space: nowrap; }
+        .q-explanation { font-size: 0.85rem; color: #6e6e73; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Privacy Policy Analyzer</h1>
+        <p class="subtitle">Paste a URL or upload a file to get an instant privacy grade.</p>
+
+        <div class="input-card">
+            <div class="tabs">
+                <div class="tab active" data-tab="url">Paste URL</div>
+                <div class="tab" data-tab="upload">Upload File</div>
+            </div>
+            <div id="tab-url" class="tab-content active">
+                <div class="input-row">
+                    <input type="text" id="url-input" placeholder="https://example.com/privacy-policy" />
+                    <button class="btn" id="url-btn">Analyze</button>
+                </div>
+            </div>
+            <div id="tab-upload" class="tab-content">
+                <label class="file-label">Upload a .txt, .html, or .pdf file</label>
+                <input type="file" id="file-input" accept=".txt,.html,.htm,.pdf" />
+                <br />
+                <button class="btn" id="upload-btn">Analyze</button>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Analyzing privacy policy... this may take up to 30 seconds.</p>
+        </div>
+
+        <div class="error-msg" id="error"></div>
+
+        <div id="results">
+            <div class="overall" id="overall"></div>
+            <div class="categories" id="categories"></div>
+            <div class="details">
+                <div class="details-header" id="details-toggle">
+                    Detailed Breakdown
+                    <span id="toggle-arrow">&#9660;</span>
+                </div>
+                <div class="details-body" id="details-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Details toggle
+        document.getElementById('details-toggle').addEventListener('click', () => {
+            const body = document.getElementById('details-body');
+            const arrow = document.getElementById('toggle-arrow');
+            body.classList.toggle('open');
+            arrow.innerHTML = body.classList.contains('open') ? '&#9650;' : '&#9660;';
+        });
+
+        function scoreColor(score, max) {
+            const pct = score / max;
+            if (pct >= 0.7) return '#34c759';
+            if (pct >= 0.4) return '#ff9f0a';
+            return '#ff3b30';
+        }
+
+        function setLoading(on) {
+            document.getElementById('loading').classList.toggle('active', on);
+            document.getElementById('results').classList.remove('active');
+            document.getElementById('error').classList.remove('active');
+            document.querySelectorAll('.btn').forEach(b => b.disabled = on);
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('error');
+            el.textContent = msg;
+            el.classList.add('active');
+        }
+
+        function renderResults(data) {
+            const color = scoreColor(data.overall_score, 10);
+
+            // Overall
+            document.getElementById('overall').innerHTML = `
+                <div class="score-circle" style="background:${color}">${data.overall_score.toFixed(1)}</div>
+                <div class="overall-text">
+                    <h2>Overall Privacy Score</h2>
+                    <p>${data.overall_summary}</p>
+                </div>
+            `;
+
+            // Categories
+            const catOrder = ['handling', 'transparency', 'collection'];
+            const catLabels = { handling: 'Handling', transparency: 'Transparency', collection: 'Collection' };
+            document.getElementById('categories').innerHTML = catOrder.map(key => {
+                const cat = data.categories[key];
+                const c = scoreColor(cat.score, 10);
+                const pct = (cat.score / 10 * 100).toFixed(0);
+                return `
+                    <div class="cat-card">
+                        <h3>${catLabels[key]}</h3>
+                        <div class="cat-score" style="color:${c}">${cat.score.toFixed(1)}<span style="font-size:0.9rem;color:#6e6e73">/10</span></div>
+                        <div class="score-bar"><div class="score-bar-fill" style="width:${pct}%;background:${c}"></div></div>
+                        <p>${cat.summary}</p>
+                    </div>
+                `;
+            }).join('');
+
+            // Detailed questions
+            document.getElementById('details-body').innerHTML = data.questions.map(q => {
+                const c = scoreColor(q.score, q.max);
+                return `
+                    <div class="q-item">
+                        <div class="q-top">
+                            <span class="q-question">${q.id}. ${q.question}</span>
+                            <span class="q-score" style="color:${c}">${q.score}/${q.max}</span>
+                        </div>
+                        <div class="q-explanation">${q.explanation}</div>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('results').classList.add('active');
+        }
+
+        async function analyze(fetchFn) {
+            setLoading(true);
+            try {
+                const resp = await fetchFn();
+                const data = await resp.json();
+                if (!resp.ok) {
+                    showError(data.error || 'Something went wrong.');
+                    return;
+                }
+                renderResults(data);
+            } catch (e) {
+                showError('Request failed: ' + e.message);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        document.getElementById('url-btn').addEventListener('click', () => {
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) return;
+            analyze(() => fetch('/api/analyze/url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            }));
+        });
+
+        document.getElementById('url-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') document.getElementById('url-btn').click();
+        });
+
+        document.getElementById('upload-btn').addEventListener('click', () => {
+            const file = document.getElementById('file-input').files[0];
+            if (!file) return;
+            const fd = new FormData();
+            fd.append('file', file);
+            analyze(() => fetch('/api/analyze/upload', { method: 'POST', body: fd }));
+        });
+    </script>
+</body>
+</html>

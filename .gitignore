@@ -1,0 +1,8 @@
+venv/
+.env
+SECRETS/
+code/data/
+__pycache__/
+*.pyc
+get_pip.py
+*.key
