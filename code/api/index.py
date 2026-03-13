@@ -34,52 +34,25 @@ INPUT_COST_PER_M = 1.0
 OUTPUT_COST_PER_M = 5.0
 
 # DB path: use /tmp on Vercel (ephemeral), local data/ dir otherwise
-_local_db = os.path.join(os.path.dirname(__file__), "..", "data", "analyzer.db")
-DB_PATH = os.environ.get("DB_PATH", _local_db)
+if os.environ.get("VERCEL"):
+    DB_PATH = "/tmp/analyzer.db"
+else:
+    DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "analyzer.db")
 
-RUBRIC_PROMPT = """You are a privacy policy analyst. Grade the following privacy policy using these 12 criteria. Be strict and evidence-based — only give high scores when the policy explicitly commits to good practices.
-
-HANDLING (how the company handles your data):
-1. Behavioral Marketing — Does the policy allow personally-targeted or behavioral marketing? (0-10 points, 10 = no behavioral marketing at all)
-2. Data Deletion — Can users permanently delete their personal data? (0-5 points, 5 = easy automated deletion mechanism)
-3. Law Enforcement Access — Under what conditions does the company share data with law enforcement? (0-5 points, 5 = only with court order or never)
-4. Third-Party Sharing — Does the service share personal data with third parties? (0-10 points, 10 = never shares personal data)
-
-TRANSPARENCY (how transparent the company is):
-5. Data Breach Notification — Does the policy commit to notifying users of data breaches? (0-7 points, 7 = within 72 hours)
-6. Policy Change Notification — Will users be notified when the policy changes? (0-5 points, 5 = always notifies before changes take effect)
-7. Policy History — Is the policy's revision history available? (0-5 points, 5 = full changelog available)
-8. Security Practices — Does the policy describe its security practices? (0-3 points, 3 = detailed practices with independent audits)
-
-COLLECTION (what data is collected and why):
-9. Collection Reasoning — Is it clear why the service collects each type of personal data? (0-10 points, 10 = every data type has a clear justification)
-10. Data Listing — Does the policy exhaustively list the personal data it collects? (0-10 points, 10 = exhaustive list)
-11. Non-Critical Use Control — Can users opt out of non-critical data collection/use? (0-10 points, 10 = full opt-in for all non-critical purposes)
-12. Third-Party Collection — Does the service collect personal data from third-party sources? (0-10 points, 10 = never collects from third parties)
-
-Score each question individually, then compute category and overall scores.
-
-Category scores: normalize each category's earned points to a 0-10 scale (earned / max * 10).
-- Handling max = 30
-- Transparency max = 20
-- Collection max = 40
-
-Overall score: weighted average of categories — Handling 35%, Transparency 25%, Collection 40%.
-
-Respond in EXACTLY this JSON format and nothing else:
-{
-  "questions": [
-    {"id": 1, "category": "handling", "question": "short question text", "score": <number>, "max": <number>, "explanation": "1-2 sentence justification citing the policy"},
-    ...all 12 questions...
-  ],
-  "categories": {
-    "handling": {"score": <0-10 float, 1 decimal>, "summary": "2-3 sentence summary"},
-    "transparency": {"score": <0-10 float, 1 decimal>, "summary": "2-3 sentence summary"},
-    "collection": {"score": <0-10 float, 1 decimal>, "summary": "2-3 sentence summary"}
-  },
-  "overall_score": <0-10 float, 1 decimal>,
-  "overall_summary": "3-4 sentence overall assessment"
-}"""
+# Check same dir first (Vercel bundles api/ together), then parent (local dev)
+for _p in [
+    os.path.join(os.path.dirname(__file__), "rubric.md"),
+    os.path.join(os.path.dirname(__file__), "..", "rubric.md"),
+    os.path.join(os.getcwd(), "rubric.md"),
+    os.path.join(os.getcwd(), "api", "rubric.md"),
+]:
+    if os.path.exists(_p):
+        _rubric_path = _p
+        break
+else:
+    raise FileNotFoundError("rubric.md not found")
+with open(_rubric_path) as f:
+    RUBRIC_PROMPT = f.read()
 
 
 # --- Database ---
@@ -95,6 +68,18 @@ def get_db():
     db.execute("""CREATE TABLE IF NOT EXISTS spend (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         cost REAL,
+        created_at TEXT
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT,
+        name TEXT,
+        overall_score REAL,
+        handling REAL,
+        user_control REAL,
+        transparency REAL,
+        collection_security REAL,
+        result TEXT,
         created_at TEXT
     )""")
     db.commit()
@@ -149,6 +134,38 @@ def set_cached(key, result):
     try:
         db.execute("INSERT OR REPLACE INTO cache (key, result, created_at) VALUES (?, ?, ?)",
                     (key, json.dumps(result), time.time()))
+        db.commit()
+    finally:
+        db.close()
+
+
+def save_history(url_or_name, result):
+    """Save an analysis to the history table."""
+    cats = result.get("categories", {})
+    db = get_db()
+    try:
+        # Extract a short name from the URL (domain)
+        name = url_or_name
+        if name.startswith("http"):
+            from urllib.parse import urlparse
+            name = urlparse(name).netloc.replace("www.", "")
+
+        db.execute(
+            """INSERT INTO history (url, name, overall_score, handling, user_control,
+               transparency, collection_security, result, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                url_or_name,
+                name,
+                result.get("overall_score", 0),
+                cats.get("handling", {}).get("score", 0),
+                cats.get("user_control", {}).get("score", 0),
+                cats.get("transparency", {}).get("score", 0),
+                cats.get("collection_security", {}).get("score", 0),
+                json.dumps(result),
+                datetime.utcnow().isoformat(),
+            ),
+        )
         db.commit()
     finally:
         db.close()
@@ -260,9 +277,14 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB
 
 @app.route("/")
 def home():
-    html_path = os.path.join(os.path.dirname(__file__), "..", "public", "index.html")
-    with open(html_path) as f:
-        return f.read()
+    for p in [
+        os.path.join(os.path.dirname(__file__), "index.html"),
+        os.path.join(os.path.dirname(__file__), "..", "public", "index.html"),
+    ]:
+        if os.path.exists(p):
+            with open(p) as f:
+                return f.read()
+    return "Not found", 404
 
 
 @app.route("/api/analyze/url", methods=["POST"])
@@ -300,6 +322,7 @@ def analyze_url():
     try:
         result = analyze_policy(text)
         set_cached(cache_key, result)
+        save_history(url, result)
     except BudgetExceeded as e:
         return jsonify({"error": str(e)}), 429
     except ValueError as e:
@@ -343,6 +366,7 @@ def analyze_upload():
     try:
         result = analyze_policy(text)
         set_cached(cache_key, result)
+        save_history(file.filename, result)
     except BudgetExceeded as e:
         return jsonify({"error": str(e)}), 429
     except ValueError as e:
@@ -351,6 +375,40 @@ def analyze_upload():
         return jsonify({"error": f"Analysis failed: {e}"}), 502
 
     return jsonify(result)
+
+
+@app.route("/api/history", methods=["GET"])
+def get_history():
+    db = get_db()
+    try:
+        rows = db.execute(
+            """SELECT id, name, url, overall_score, handling, user_control,
+                      transparency, collection_security, created_at
+               FROM history ORDER BY created_at DESC"""
+        ).fetchall()
+        return jsonify([
+            {
+                "id": r[0], "name": r[1], "url": r[2], "overall_score": r[3],
+                "handling": r[4], "user_control": r[5],
+                "transparency": r[6], "collection_security": r[7],
+                "date": r[8][:10],
+            }
+            for r in rows
+        ])
+    finally:
+        db.close()
+
+
+@app.route("/api/history/<int:report_id>", methods=["GET"])
+def get_report(report_id):
+    db = get_db()
+    try:
+        row = db.execute("SELECT result FROM history WHERE id = ?", (report_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Report not found"}), 404
+        return jsonify(json.loads(row[0]))
+    finally:
+        db.close()
 
 
 @app.route("/api/spend", methods=["GET"])
@@ -371,6 +429,55 @@ def get_spend():
         })
     finally:
         db.close()
+
+
+@app.route("/api/rubric", methods=["GET"])
+def get_rubric():
+    """Parse rubric.md into structured JSON for the frontend."""
+    categories = []
+    current_cat = None
+    q_id = 0
+
+    for line in RUBRIC_PROMPT.splitlines():
+        line = line.strip()
+        # Category headers: ## HANDLING (how the company handles your data)
+        if line.startswith("## ") and not line.startswith("## SCORING"):
+            name = line[3:].strip()
+            # Extract weight from scoring section later; for now parse name
+            current_cat = {"name": name, "weight": 0, "questions": []}
+            categories.append(current_cat)
+        # Question lines: N. **Name** — description (0-X points, ...)
+        elif current_cat and line and line[0].isdigit() and "**" in line:
+            q_id += 1
+            # Extract name between ** **
+            name_start = line.index("**") + 2
+            name_end = line.index("**", name_start)
+            q_name = line[name_start:name_end]
+            # Extract max points
+            max_pts = 0
+            if "(0-" in line:
+                pts_str = line.split("(0-")[1].split(" ")[0]
+                max_pts = int(pts_str)
+            # Description is everything after the —
+            desc = ""
+            if "\u2014" in line:
+                desc = line.split("\u2014", 1)[1].strip()
+                # Remove the (0-X points...) part from description
+                if "(" in desc:
+                    desc = desc[:desc.index("(")].strip()
+            current_cat["questions"].append({
+                "id": q_id, "name": q_name, "max": max_pts, "description": desc,
+            })
+
+    # Set weights from rubric
+    weights = {"HANDLING": 30, "USER CONTROL": 25, "TRANSPARENCY": 20, "COLLECTION & SECURITY": 25}
+    for cat in categories:
+        for key, w in weights.items():
+            if key in cat["name"].upper():
+                cat["weight"] = w
+                break
+
+    return jsonify({"categories": categories})
 
 
 if __name__ == "__main__":

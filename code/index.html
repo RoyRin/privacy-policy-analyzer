@@ -249,55 +249,6 @@
             font-size: 0.85rem;
             color: #6e6e73;
         }
-
-        /* History table */
-        .history-card {
-            background: #fff;
-            border-radius: 12px;
-            padding: 1.5rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            margin-top: 2rem;
-        }
-        .history-card h2 {
-            font-size: 1.1rem;
-            margin-bottom: 1rem;
-        }
-        .history-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.88rem;
-        }
-        .history-table th {
-            text-align: left;
-            padding: 0.5rem 0.6rem;
-            border-bottom: 2px solid #e5e5e5;
-            color: #6e6e73;
-            font-weight: 600;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        .history-table td {
-            padding: 0.6rem;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        .history-table tr:last-child td { border-bottom: none; }
-        .history-table tbody tr { cursor: pointer; transition: background 0.15s; }
-        .history-table tbody tr:hover { background: #f5f5f7; }
-        .history-table .score-cell {
-            font-weight: 700;
-            text-align: center;
-        }
-        .history-table .date-cell {
-            color: #6e6e73;
-            white-space: nowrap;
-        }
-        .history-empty {
-            color: #6e6e73;
-            font-size: 0.9rem;
-            text-align: center;
-            padding: 1.5rem;
-        }
     </style>
 </head>
 <body>
@@ -346,11 +297,6 @@
                 <div class="details-body" id="details-body"></div>
             </div>
         </div>
-
-        <div class="history-card">
-            <h2>Previously Analyzed Policies</h2>
-            <div id="history-content"><div class="history-empty">Loading...</div></div>
-        </div>
     </div>
 
     <script>
@@ -381,10 +327,8 @@
 
         function setLoading(on) {
             document.getElementById('loading').classList.toggle('active', on);
-            if (on) {
-                document.getElementById('results').classList.remove('active');
-                document.getElementById('error').classList.remove('active');
-            }
+            document.getElementById('results').classList.remove('active');
+            document.getElementById('error').classList.remove('active');
             document.querySelectorAll('.btn').forEach(b => b.disabled = on);
         }
 
@@ -440,50 +384,6 @@
             document.getElementById('results').classList.add('active');
         }
 
-        async function loadReport(id) {
-            try {
-                const resp = await fetch('/api/history/' + id);
-                const data = await resp.json();
-                if (resp.ok) {
-                    renderResults(data);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                }
-            } catch (e) {}
-        }
-
-        async function loadHistory() {
-            try {
-                const resp = await fetch('/api/history');
-                const rows = await resp.json();
-                const el = document.getElementById('history-content');
-                if (!rows.length) {
-                    el.innerHTML = '<div class="history-empty">No policies analyzed yet.</div>';
-                    return;
-                }
-                el.innerHTML = `<table class="history-table">
-                    <thead><tr>
-                        <th>Policy</th><th>Overall</th><th>Handling</th>
-                        <th>User Ctrl</th><th>Transparency</th><th>Collect/Sec</th><th>Date</th>
-                    </tr></thead>
-                    <tbody>${rows.map(r => `<tr data-id="${r.id}">
-                        <td>${r.url && r.url.startsWith('http') ? r.name : r.name}</td>
-                        <td class="score-cell" style="color:${scoreColor(r.overall_score, 10)}">${r.overall_score.toFixed(1)}</td>
-                        <td class="score-cell" style="color:${scoreColor(r.handling, 10)}">${r.handling.toFixed(1)}</td>
-                        <td class="score-cell" style="color:${scoreColor(r.user_control, 10)}">${r.user_control.toFixed(1)}</td>
-                        <td class="score-cell" style="color:${scoreColor(r.transparency, 10)}">${r.transparency.toFixed(1)}</td>
-                        <td class="score-cell" style="color:${scoreColor(r.collection_security, 10)}">${r.collection_security.toFixed(1)}</td>
-                        <td class="date-cell">${r.date}</td>
-                    </tr>`).join('')}</tbody>
-                </table>`;
-                el.querySelectorAll('tr[data-id]').forEach(tr => {
-                    tr.addEventListener('click', () => loadReport(tr.dataset.id));
-                });
-            } catch (e) {
-                document.getElementById('history-content').innerHTML = '<div class="history-empty">Could not load history.</div>';
-            }
-        }
-        loadHistory();
-
         async function analyze(fetchFn) {
             setLoading(true);
             try {
@@ -494,7 +394,6 @@
                     return;
                 }
                 renderResults(data);
-                loadHistory();
             } catch (e) {
                 showError('Request failed: ' + e.message);
             } finally {
