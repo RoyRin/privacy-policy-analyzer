@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 get_pip.py
 *.key
+.env.*
+*.env
