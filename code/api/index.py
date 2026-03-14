@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from html.parser import HTMLParser
 from io import BytesIO
+from urllib.parse import urlparse
 
 import requests as http_requests
 from flask import Flask, request, jsonify
@@ -33,12 +34,6 @@ CACHE_TTL = 86400 * 7  # 7 days in seconds
 INPUT_COST_PER_M = 1.0
 OUTPUT_COST_PER_M = 5.0
 
-# DB path: use /tmp on Vercel (ephemeral), local data/ dir otherwise
-if os.environ.get("VERCEL"):
-    DB_PATH = "/tmp/analyzer.db"
-else:
-    DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "analyzer.db")
-
 # Check same dir first (Vercel bundles api/ together), then parent (local dev)
 for _p in [
     os.path.join(os.path.dirname(__file__), "rubric.md"),
@@ -55,22 +50,51 @@ with open(_rubric_path) as f:
     RUBRIC_PROMPT = f.read()
 
 
-# --- Database ---
+# --- Database (Postgres on Vercel, SQLite locally) ---
 
-def get_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    db = sqlite3.connect(DB_PATH)
-    db.execute("""CREATE TABLE IF NOT EXISTS cache (
+POSTGRES_URL = os.environ.get("POSTGRES_URL", "")
+USE_POSTGRES = bool(POSTGRES_URL)
+
+if USE_POSTGRES:
+    import pg8000
+
+_INIT_SQL_PG = [
+    """CREATE TABLE IF NOT EXISTS cache (
+        key TEXT PRIMARY KEY,
+        result TEXT,
+        created_at DOUBLE PRECISION
+    )""",
+    """CREATE TABLE IF NOT EXISTS spend (
+        id SERIAL PRIMARY KEY,
+        cost DOUBLE PRECISION,
+        created_at TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS history (
+        id SERIAL PRIMARY KEY,
+        url TEXT,
+        name TEXT,
+        overall_score DOUBLE PRECISION,
+        handling DOUBLE PRECISION,
+        user_control DOUBLE PRECISION,
+        transparency DOUBLE PRECISION,
+        collection_security DOUBLE PRECISION,
+        result TEXT,
+        created_at TEXT
+    )""",
+]
+
+_INIT_SQL_SQLITE = [
+    """CREATE TABLE IF NOT EXISTS cache (
         key TEXT PRIMARY KEY,
         result TEXT,
         created_at REAL
-    )""")
-    db.execute("""CREATE TABLE IF NOT EXISTS spend (
+    )""",
+    """CREATE TABLE IF NOT EXISTS spend (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         cost REAL,
         created_at TEXT
-    )""")
-    db.execute("""CREATE TABLE IF NOT EXISTS history (
+    )""",
+    """CREATE TABLE IF NOT EXISTS history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         url TEXT,
         name TEXT,
@@ -81,9 +105,48 @@ def get_db():
         collection_security REAL,
         result TEXT,
         created_at TEXT
-    )""")
-    db.commit()
-    return db
+    )""",
+]
+
+_db_initialized = False
+
+
+def get_db():
+    global _db_initialized
+    if USE_POSTGRES:
+        parsed = urlparse(POSTGRES_URL)
+        conn = pg8000.connect(
+            host=parsed.hostname, port=parsed.port or 5432,
+            user=parsed.username, password=parsed.password,
+            database=parsed.path.lstrip("/"), ssl_context=True,
+        )
+        conn.autocommit = False
+        if not _db_initialized:
+            cur = conn.cursor()
+            for sql in _INIT_SQL_PG:
+                cur.execute(sql)
+            conn.commit()
+            _db_initialized = True
+        return conn
+    else:
+        db_path = os.path.join(os.path.dirname(__file__), "..", "data", "analyzer.db")
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        if not _db_initialized:
+            for sql in _INIT_SQL_SQLITE:
+                conn.execute(sql)
+            conn.commit()
+            _db_initialized = True
+        return conn
+
+
+def db_execute(conn, sql, params=None):
+    """Execute SQL, handling placeholder differences between Postgres (%s) and SQLite (?)."""
+    if USE_POSTGRES:
+        sql = sql.replace("?", "%s")
+    cur = conn.cursor()
+    cur.execute(sql, params or ())
+    return cur
 
 
 class BudgetExceeded(Exception):
@@ -91,66 +154,70 @@ class BudgetExceeded(Exception):
 
 
 def check_budget():
-    db = get_db()
+    conn = get_db()
     try:
-        total = db.execute("SELECT COALESCE(SUM(cost), 0) FROM spend").fetchone()[0]
+        total = db_execute(conn, "SELECT COALESCE(SUM(cost), 0) FROM spend").fetchone()[0]
         if total >= BUDGET_TOTAL:
             raise BudgetExceeded(f"Total budget of ${BUDGET_TOTAL:.0f} exceeded (${total:.2f} spent)")
 
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        daily = db.execute(
+        daily = db_execute(conn,
             "SELECT COALESCE(SUM(cost), 0) FROM spend WHERE created_at LIKE ?",
             (today + "%",)
         ).fetchone()[0]
         if daily >= BUDGET_DAILY:
             raise BudgetExceeded(f"Daily budget of ${BUDGET_DAILY:.0f} exceeded (${daily:.2f} spent today)")
     finally:
-        db.close()
+        conn.close()
 
 
 def record_spend(cost):
-    db = get_db()
+    conn = get_db()
     try:
-        db.execute("INSERT INTO spend (cost, created_at) VALUES (?, ?)",
+        db_execute(conn, "INSERT INTO spend (cost, created_at) VALUES (?, ?)",
                     (cost, datetime.utcnow().isoformat()))
-        db.commit()
+        conn.commit()
     finally:
-        db.close()
+        conn.close()
 
 
 def get_cached(key):
-    db = get_db()
+    conn = get_db()
     try:
-        row = db.execute("SELECT result, created_at FROM cache WHERE key = ?", (key,)).fetchone()
+        row = db_execute(conn, "SELECT result, created_at FROM cache WHERE key = ?", (key,)).fetchone()
         if row and (time.time() - row[1]) < CACHE_TTL:
             return json.loads(row[0])
         return None
     finally:
-        db.close()
+        conn.close()
 
 
 def set_cached(key, result):
-    db = get_db()
+    conn = get_db()
     try:
-        db.execute("INSERT OR REPLACE INTO cache (key, result, created_at) VALUES (?, ?, ?)",
-                    (key, json.dumps(result), time.time()))
-        db.commit()
+        if USE_POSTGRES:
+            db_execute(conn,
+                """INSERT INTO cache (key, result, created_at) VALUES (?, ?, ?)
+                   ON CONFLICT (key) DO UPDATE SET result = EXCLUDED.result, created_at = EXCLUDED.created_at""",
+                (key, json.dumps(result), time.time()))
+        else:
+            db_execute(conn, "INSERT OR REPLACE INTO cache (key, result, created_at) VALUES (?, ?, ?)",
+                        (key, json.dumps(result), time.time()))
+        conn.commit()
     finally:
-        db.close()
+        conn.close()
 
 
 def save_history(url_or_name, result):
     """Save an analysis to the history table."""
     cats = result.get("categories", {})
-    db = get_db()
+    conn = get_db()
     try:
-        # Extract a short name from the URL (domain)
         name = url_or_name
         if name.startswith("http"):
-            from urllib.parse import urlparse
             name = urlparse(name).netloc.replace("www.", "")
 
-        db.execute(
+        db_execute(conn,
             """INSERT INTO history (url, name, overall_score, handling, user_control,
                transparency, collection_security, result, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -166,9 +233,9 @@ def save_history(url_or_name, result):
                 datetime.utcnow().isoformat(),
             ),
         )
-        db.commit()
+        conn.commit()
     finally:
-        db.close()
+        conn.close()
 
 
 # --- HTML text extraction ---
@@ -379,9 +446,9 @@ def analyze_upload():
 
 @app.route("/api/history", methods=["GET"])
 def get_history():
-    db = get_db()
+    conn = get_db()
     try:
-        rows = db.execute(
+        rows = db_execute(conn,
             """SELECT id, name, url, overall_score, handling, user_control,
                       transparency, collection_security, created_at
                FROM history ORDER BY created_at DESC"""
@@ -396,28 +463,28 @@ def get_history():
             for r in rows
         ])
     finally:
-        db.close()
+        conn.close()
 
 
 @app.route("/api/history/<int:report_id>", methods=["GET"])
 def get_report(report_id):
-    db = get_db()
+    conn = get_db()
     try:
-        row = db.execute("SELECT result FROM history WHERE id = ?", (report_id,)).fetchone()
+        row = db_execute(conn, "SELECT result FROM history WHERE id = ?", (report_id,)).fetchone()
         if not row:
             return jsonify({"error": "Report not found"}), 404
         return jsonify(json.loads(row[0]))
     finally:
-        db.close()
+        conn.close()
 
 
 @app.route("/api/spend", methods=["GET"])
 def get_spend():
-    db = get_db()
+    conn = get_db()
     try:
-        total = db.execute("SELECT COALESCE(SUM(cost), 0) FROM spend").fetchone()[0]
+        total = db_execute(conn, "SELECT COALESCE(SUM(cost), 0) FROM spend").fetchone()[0]
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        daily = db.execute(
+        daily = db_execute(conn,
             "SELECT COALESCE(SUM(cost), 0) FROM spend WHERE created_at LIKE ?",
             (today + "%",)
         ).fetchone()[0]
@@ -428,7 +495,7 @@ def get_spend():
             "daily_budget": BUDGET_DAILY,
         })
     finally:
-        db.close()
+        conn.close()
 
 
 @app.route("/api/rubric", methods=["GET"])
@@ -443,26 +510,21 @@ def get_rubric():
         # Category headers: ## HANDLING (how the company handles your data)
         if line.startswith("## ") and not line.startswith("## SCORING"):
             name = line[3:].strip()
-            # Extract weight from scoring section later; for now parse name
             current_cat = {"name": name, "weight": 0, "questions": []}
             categories.append(current_cat)
         # Question lines: N. **Name** — description (0-X points, ...)
         elif current_cat and line and line[0].isdigit() and "**" in line:
             q_id += 1
-            # Extract name between ** **
             name_start = line.index("**") + 2
             name_end = line.index("**", name_start)
             q_name = line[name_start:name_end]
-            # Extract max points
             max_pts = 0
             if "(0-" in line:
                 pts_str = line.split("(0-")[1].split(" ")[0]
                 max_pts = int(pts_str)
-            # Description is everything after the —
             desc = ""
             if "\u2014" in line:
                 desc = line.split("\u2014", 1)[1].strip()
-                # Remove the (0-X points...) part from description
                 if "(" in desc:
                     desc = desc[:desc.index("(")].strip()
             current_cat["questions"].append({
