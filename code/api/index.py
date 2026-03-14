@@ -25,7 +25,7 @@ if os.path.exists(_key_path):
 else:
     OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-MODEL = "anthropic/claude-3.5-haiku"
+MODEL = "anthropic/claude-haiku-4.5"
 BUDGET_TOTAL = 20.0   # $20 lifetime
 BUDGET_DAILY = 10.0   # $10 per day
 CACHE_TTL = 86400 * 7  # 7 days in seconds
