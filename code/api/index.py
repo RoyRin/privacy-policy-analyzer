@@ -78,9 +78,24 @@ _INIT_SQL_PG = [
         user_control DOUBLE PRECISION,
         transparency DOUBLE PRECISION,
         collection_security DOUBLE PRECISION,
+        ai DOUBLE PRECISION DEFAULT 0,
         result TEXT,
         created_at TEXT
     )""",
+]
+
+_INIT_SQL_PG.append("""CREATE TABLE IF NOT EXISTS policy_texts (
+    id SERIAL PRIMARY KEY,
+    url TEXT,
+    name TEXT,
+    policy_text TEXT,
+    text_length INTEGER,
+    created_at TEXT
+)""")
+
+_MIGRATE_SQL_PG = [
+    "ALTER TABLE history ADD COLUMN IF NOT EXISTS ai DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE history DROP COLUMN IF EXISTS special_considerations",
 ]
 
 _INIT_SQL_SQLITE = [
@@ -103,7 +118,16 @@ _INIT_SQL_SQLITE = [
         user_control REAL,
         transparency REAL,
         collection_security REAL,
+        ai REAL DEFAULT 0,
         result TEXT,
+        created_at TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS policy_texts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT,
+        name TEXT,
+        policy_text TEXT,
+        text_length INTEGER,
         created_at TEXT
     )""",
 ]
@@ -124,6 +148,8 @@ def get_db():
         if not _db_initialized:
             cur = conn.cursor()
             for sql in _INIT_SQL_PG:
+                cur.execute(sql)
+            for sql in _MIGRATE_SQL_PG:
                 cur.execute(sql)
             conn.commit()
             _db_initialized = True
@@ -219,8 +245,8 @@ def save_history(url_or_name, result):
 
         db_execute(conn,
             """INSERT INTO history (url, name, overall_score, handling, user_control,
-               transparency, collection_security, result, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               transparency, collection_security, ai, result, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 url_or_name,
                 name,
@@ -229,11 +255,35 @@ def save_history(url_or_name, result):
                 cats.get("user_control", {}).get("score", 0),
                 cats.get("transparency", {}).get("score", 0),
                 cats.get("collection_security", {}).get("score", 0),
+                cats.get("ai", {}).get("score", 0),
                 json.dumps(result),
                 datetime.utcnow().isoformat(),
             ),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def save_policy_text(url_or_name, text):
+    """Store raw policy text and return its ID for chat reference."""
+    conn = get_db()
+    try:
+        name = url_or_name
+        if name.startswith("http"):
+            name = urlparse(name).netloc.replace("www.", "")
+        cur = db_execute(conn,
+            "INSERT INTO policy_texts (url, name, policy_text, text_length, created_at) VALUES (?, ?, ?, ?, ?)",
+            (url_or_name, name, text, len(text), datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        # Get the inserted ID
+        if USE_POSTGRES:
+            # pg8000 doesn't support lastrowid; query it
+            row = db_execute(conn, "SELECT MAX(id) FROM policy_texts").fetchone()
+            return row[0]
+        else:
+            return cur.lastrowid
     finally:
         conn.close()
 
@@ -315,9 +365,29 @@ def call_llm(policy_text):
     return data["choices"][0]["message"]["content"]
 
 
+_PRIVACY_KEYWORDS = [
+    "privacy", "personal data", "personal information", "data protection",
+    "cookies", "collect", "third party", "third-party", "opt out", "opt-out",
+    "data subject", "gdpr", "ccpa", "information we collect",
+]
+
+
+def _looks_like_privacy_policy(text):
+    """Check if the text contains enough privacy-related language."""
+    lower = text.lower()
+    matches = sum(1 for kw in _PRIVACY_KEYWORDS if kw in lower)
+    return matches >= 3
+
+
 def analyze_policy(text):
     if len(text.strip()) < 50:
         raise ValueError("The extracted text is too short to be a privacy policy.")
+
+    if not _looks_like_privacy_policy(text):
+        raise ValueError(
+            "This page doesn't appear to contain a privacy policy. "
+            "Please link directly to the privacy policy page (e.g. https://example.com/privacy-policy)."
+        )
 
     raw = call_llm(text)
 
@@ -388,6 +458,10 @@ def analyze_url():
 
     try:
         result = analyze_policy(text)
+        result["_url"] = url
+        result["_name"] = urlparse(url).netloc.replace("www.", "")
+        policy_id = save_policy_text(url, text)
+        result["_policy_id"] = policy_id
         set_cached(cache_key, result)
         save_history(url, result)
     except BudgetExceeded as e:
@@ -411,6 +485,8 @@ def analyze_upload():
 
     filename = file.filename.lower()
     raw = file.read()
+    custom_name = request.form.get("name", "").strip()
+    source_url = request.form.get("source_url", "").strip()
 
     # Cache by content hash
     cache_key = "file:" + hashlib.sha256(raw).hexdigest()
@@ -430,10 +506,17 @@ def analyze_upload():
     else:
         return jsonify({"error": "Unsupported file type. Upload .txt, .html, or .pdf"}), 400
 
+    # Use custom name/url if provided, fall back to filename
+    identifier = source_url or custom_name or file.filename
+
     try:
         result = analyze_policy(text)
+        policy_id = save_policy_text(identifier, text)
+        result["_policy_id"] = policy_id
+        result["_url"] = source_url
+        result["_name"] = custom_name or file.filename
         set_cached(cache_key, result)
-        save_history(file.filename, result)
+        save_history(identifier, result)
     except BudgetExceeded as e:
         return jsonify({"error": str(e)}), 429
     except ValueError as e:
@@ -450,7 +533,7 @@ def get_history():
     try:
         rows = db_execute(conn,
             """SELECT id, name, url, overall_score, handling, user_control,
-                      transparency, collection_security, created_at
+                      transparency, collection_security, ai, created_at
                FROM history ORDER BY created_at DESC"""
         ).fetchall()
         return jsonify([
@@ -458,7 +541,8 @@ def get_history():
                 "id": r[0], "name": r[1], "url": r[2], "overall_score": r[3],
                 "handling": r[4], "user_control": r[5],
                 "transparency": r[6], "collection_security": r[7],
-                "date": r[8][:10],
+                "ai": r[8] or 0,
+                "date": r[9][:10],
             }
             for r in rows
         ])
@@ -470,10 +554,18 @@ def get_history():
 def get_report(report_id):
     conn = get_db()
     try:
-        row = db_execute(conn, "SELECT result FROM history WHERE id = ?", (report_id,)).fetchone()
+        row = db_execute(conn, "SELECT result, url, name FROM history WHERE id = ?", (report_id,)).fetchone()
         if not row:
             return jsonify({"error": "Report not found"}), 404
-        return jsonify(json.loads(row[0]))
+        data = json.loads(row[0])
+        data["_url"] = row[1] or ""
+        data["_name"] = row[2] or ""
+        # Find matching policy text for chat
+        if row[1]:
+            pt = db_execute(conn, "SELECT id FROM policy_texts WHERE url = ? ORDER BY id DESC LIMIT 1", (row[1],)).fetchone()
+            if pt:
+                data["_policy_id"] = pt[0]
+        return jsonify(data)
     finally:
         conn.close()
 
@@ -496,6 +588,74 @@ def get_spend():
         })
     finally:
         conn.close()
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    data = request.get_json()
+    policy_id = data.get("policy_id")
+    question = data.get("question", "").strip()
+
+    if not policy_id or not question:
+        return jsonify({"error": "Missing policy_id or question."}), 400
+
+    conn = get_db()
+    try:
+        row = db_execute(conn, "SELECT policy_text, name, url FROM policy_texts WHERE id = ?", (policy_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Policy not found."}), 404
+        policy_text, name, policy_url = row[0], row[1], row[2]
+
+        # Fetch the grading report if available
+        report_text = ""
+        if policy_url:
+            report_row = db_execute(conn, "SELECT result FROM history WHERE url = ? ORDER BY id DESC LIMIT 1", (policy_url,)).fetchone()
+            if report_row:
+                report_text = report_row[0]
+    finally:
+        conn.close()
+
+    try:
+        check_budget()
+    except BudgetExceeded as e:
+        return jsonify({"error": str(e)}), 429
+
+    system_content = (
+        "You are a privacy policy analyst. Answer the user's question about the following privacy policy. "
+        "Be concise and factual. Cite specific sections or quotes from the policy when possible. "
+        "If the policy doesn't address the question, say so clearly. "
+        "You also have access to the grading report we generated for this policy — use it to explain scores and reasoning when asked. "
+        "IMPORTANT: All category scores are on a 0-10 scale. Individual question scores have varying maximums (shown as score/max in the report), but category and overall scores are always out of 10. When discussing scores, always say 'X out of 10'.\n\n"
+        f"PRIVACY POLICY ({name}):\n\n{policy_text}"
+    )
+    if report_text:
+        system_content += f"\n\n---\n\nGRADING REPORT:\n\n{report_text}"
+
+    resp = http_requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": MODEL,
+            "messages": [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": question},
+            ],
+            "max_tokens": 1024,
+        },
+        timeout=60,
+    )
+    resp.raise_for_status()
+    result = resp.json()
+
+    usage = result.get("usage", {})
+    cost = (usage.get("prompt_tokens", 0) * INPUT_COST_PER_M + usage.get("completion_tokens", 0) * OUTPUT_COST_PER_M) / 1_000_000
+    record_spend(cost)
+
+    answer = result["choices"][0]["message"]["content"]
+    return jsonify({"answer": answer})
 
 
 @app.route("/api/rubric", methods=["GET"])
@@ -532,7 +692,7 @@ def get_rubric():
             })
 
     # Set weights from rubric
-    weights = {"HANDLING": 30, "USER CONTROL": 25, "TRANSPARENCY": 20, "COLLECTION & SECURITY": 25}
+    weights = {"DATA SHARING": 20, "USER CONTROL": 20, "TRANSPARENCY": 10, "COLLECTION & SECURITY": 30, "AI": 20}
     for cat in categories:
         for key, w in weights.items():
             if key in cat["name"].upper():

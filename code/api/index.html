@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy Policy Analyzer</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -157,7 +158,7 @@
 
         .categories {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
@@ -250,6 +251,132 @@
             color: #6e6e73;
         }
 
+        /* Disclaimer */
+        .disclaimer {
+            background: #fff;
+            border-radius: 12px;
+            padding: 1.2rem 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+            color: #6e6e73;
+            line-height: 1.7;
+            display: none;
+        }
+        .disclaimer.active { display: block; }
+        .disclaimer strong { color: #1d1d1f; }
+
+        /* Chat panel */
+        .chat-btn {
+            padding: 0.5rem 1rem;
+            background: #f5f5f7;
+            color: #0071e3;
+            border: 1.5px solid #0071e3;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .chat-btn:hover { background: #0071e3; color: #fff; }
+        .chat-overlay {
+            display: none;
+            position: fixed;
+            top: 0; right: 0;
+            width: 420px; height: 100vh;
+            background: #fff;
+            box-shadow: -2px 0 12px rgba(0,0,0,0.12);
+            z-index: 1000;
+            flex-direction: column;
+        }
+        .chat-overlay.open { display: flex; }
+        @media (max-width: 600px) { .chat-overlay { width: 100%; } }
+        .chat-header {
+            padding: 1rem 1.2rem;
+            border-bottom: 1px solid #e5e5e5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chat-header h3 { font-size: 1rem; margin: 0; }
+        .chat-close {
+            background: none; border: none;
+            font-size: 1.3rem; cursor: pointer; color: #6e6e73;
+        }
+        .chat-chips {
+            padding: 0.8rem 1.2rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .chat-chip {
+            padding: 0.35rem 0.7rem;
+            background: #f5f5f7;
+            border: 1px solid #e5e5e5;
+            border-radius: 16px;
+            font-size: 0.78rem;
+            color: #1d1d1f;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .chat-chip:hover { background: #e5e5e5; }
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem 1.2rem;
+        }
+        .chat-msg {
+            margin-bottom: 0.8rem;
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+        .chat-msg.user {
+            color: #0071e3;
+            font-weight: 500;
+        }
+        .chat-msg.bot { color: #1d1d1f; }
+        .chat-msg.bot p { margin-bottom: 0.4rem; }
+        .chat-input-row {
+            padding: 0.8rem 1.2rem;
+            border-top: 1px solid #e5e5e5;
+            display: flex;
+            gap: 0.5rem;
+        }
+        .chat-input-row input {
+            flex: 1;
+            padding: 0.55rem 0.8rem;
+            border: 1.5px solid #d2d2d7;
+            border-radius: 8px;
+            font-size: 0.88rem;
+            outline: none;
+        }
+        .chat-input-row input:focus { border-color: #0071e3; }
+        .chat-send {
+            padding: 0.55rem 1rem;
+            background: #0071e3;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.88rem;
+            cursor: pointer;
+        }
+        .chat-send:disabled { background: #a1a1a6; cursor: not-allowed; }
+        .chat-thinking {
+            color: #6e6e73;
+            font-size: 0.85rem;
+            font-style: italic;
+        }
+
+        /* About/Methodology tab */
+        .about { font-size: 0.9rem; color: #1d1d1f; line-height: 1.7; }
+        .about h3 { font-size: 1rem; margin: 1.2rem 0 0.4rem; }
+        .about h3:first-child { margin-top: 0; }
+        .about p { margin-bottom: 0.7rem; color: #6e6e73; }
+        .about ul { margin: 0 0 0.7rem 1.2rem; color: #6e6e73; }
+        .about li { margin-bottom: 0.3rem; }
+
         /* History table */
         .history-card {
             background: #fff;
@@ -303,28 +430,58 @@
 <body>
     <div class="container">
         <h1>Privacy Policy Analyzer</h1>
-        <p class="subtitle">Paste a URL, and an LLM will evaluate the privacy policy across 15 questions in 4 categories: how they handle your data, what control you have, how transparent they are, and what they collect. Each policy gets a score from 0 to 10.</p>
+        <p class="subtitle">Paste a URL, and an LLM will evaluate the privacy policy across 18 criteria in 5 categories: data handling, user control, transparency, collection &amp; security, and special considerations like AI training. Each policy gets a score from 0 to 10.</p>
 
         <div class="input-card">
             <div class="tabs">
                 <div class="tab active" data-tab="url">Paste URL</div>
                 <div class="tab" data-tab="upload">Upload File</div>
                 <div class="tab" data-tab="rubric">Rubric</div>
+                <div class="tab" data-tab="about">About</div>
             </div>
             <div id="tab-url" class="tab-content active">
                 <div class="input-row">
-                    <input type="text" id="url-input" placeholder="https://example.com/privacy-policy" />
+                    <input type="text" id="url-input" placeholder="e.g. https://policies.google.com/privacy — link directly to the privacy policy page" />
                     <button class="btn" id="url-btn">Analyze</button>
                 </div>
             </div>
             <div id="tab-upload" class="tab-content">
                 <label class="file-label">Upload a .txt, .html, or .pdf file</label>
                 <input type="file" id="file-input" accept=".txt,.html,.htm,.pdf" />
-                <br />
+                <div style="display:flex;gap:0.5rem;margin:0.75rem 0">
+                    <input type="text" id="upload-name" placeholder="Company name (optional)" style="flex:1;padding:0.55rem 0.8rem;border:1.5px solid #d2d2d7;border-radius:8px;font-size:0.9rem;outline:none" />
+                    <input type="text" id="upload-url" placeholder="Source URL (optional)" style="flex:1;padding:0.55rem 0.8rem;border:1.5px solid #d2d2d7;border-radius:8px;font-size:0.9rem;outline:none" />
+                </div>
                 <button class="btn" id="upload-btn">Analyze</button>
             </div>
             <div id="tab-rubric" class="tab-content">
                 <div class="rubric" id="rubric-content">Loading rubric...</div>
+            </div>
+            <div id="tab-about" class="tab-content">
+                <div class="about">
+                    <h3>What this tool does</h3>
+                    <p>This tool uses an AI language model to analyze privacy policies against a structured rubric of 18 criteria covering data handling, user control, transparency, data collection, security, and special considerations like AI training and international transfers.</p>
+
+                    <h3>What this tool does NOT do</h3>
+                    <ul>
+                        <li><strong>It only reads the privacy policy.</strong> It does not evaluate the company's actual technical infrastructure, security architecture, code, or behavior. A company that encrypts everything end-to-end but doesn't mention it in their policy will score lower than they deserve.</li>
+                        <li><strong>It cannot verify claims.</strong> If a policy says "we never sell your data," this tool takes that at face value.</li>
+                        <li><strong>It does not review related documents.</strong> Many companies have terms of service, cookie policies, or supplemental regional notices that contain important privacy information. This tool only analyzes what you give it.</li>
+                        <li><strong>Scores are AI-generated and may contain errors.</strong> While we use a detailed rubric to improve consistency, different runs may produce slightly different scores. Treat scores as approximate, not precise.</li>
+                    </ul>
+
+                    <h3>Why good companies can score lower than expected</h3>
+                    <p>Some of the most privacy-respecting services have short, simple privacy policies — precisely because they collect almost nothing. But our rubric grades what the policy <em>says</em>, and silence on a topic (even if the reason is "we don't do that") still counts as a gap.</p>
+                    <p><strong>Signal</strong> is the clearest example. It's widely regarded as the gold standard for private messaging: end-to-end encrypted, open source, nonprofit, no ads, minimal data collection. But its privacy policy doesn't mention breach notification procedures, uses broad language about law enforcement, doesn't describe data retention periods, and assumes consent by continued use. These are real documentation gaps — but they don't mean Signal is bad for your privacy.</p>
+
+                    <h3>Why bad companies can score higher than expected</h3>
+                    <p>A company with sophisticated legal teams can write a policy that checks many boxes while still engaging in extensive data collection. Meta, for instance, has a detailed policy with clear headings, self-service data tools, and explicit disclosures — scoring reasonably well on transparency — while operating one of the largest behavioral advertising platforms in the world. A well-written policy is not the same as good privacy.</p>
+
+                    <p><strong>The takeaway:</strong> A high score means the policy is thorough and privacy-respecting. A mediocre score might mean bad practices, OR it might mean a sparse policy. Use this tool as one input, not the final word.</p>
+
+                    <h3>Open methodology</h3>
+                    <p>Our full grading rubric is open — see the <a href="https://github.com/RoyRin/privacy-policy-analyzer" target="_blank">source code</a> or the Rubric tab above. We welcome <a href="https://forms.gle/5vsYFe4w5rWKZBYFA" target="_blank">feedback</a> on criteria, scoring levels, and calibration.</p>
+                </div>
             </div>
         </div>
 
@@ -344,6 +501,9 @@
                     <span id="toggle-arrow">&#9660;</span>
                 </div>
                 <div class="details-body" id="details-body"></div>
+            </div>
+            <div class="disclaimer" id="disclaimer">
+                <strong>How to read this score:</strong> This analysis is generated by an AI and grades only the written privacy policy — not the company's actual behavior, technical architecture, or reputation. A company can score lower than expected if their policy is sparse, even if their practices are excellent. Conversely, a thorough policy can score well even if the company's actual practices are poor. <strong>This score reflects the quality of the policy document, not a comprehensive assessment of the company's privacy practices.</strong> <a href="#" onclick="document.querySelector('[data-tab=about]').click();window.scrollTo({top:0,behavior:'smooth'});return false;" style="color:#0071e3">Learn more</a>
             </div>
         </div>
 
@@ -403,18 +563,49 @@
         function renderResults(data) {
             const color = scoreColor(data.overall_score, 10);
 
+            // Track policy ID for chat
+            if (data._policy_id) currentPolicyId = data._policy_id;
+
+            // Set dynamic score chip to lowest-scoring category
+            if (data.categories) {
+                const catNames = { handling: 'Data Sharing & Use', user_control: 'User Control', transparency: 'Transparency', collection_security: 'Collection & Security', ai: 'AI' };
+                let lowest = null;
+                for (const [key, cat] of Object.entries(data.categories)) {
+                    if (!lowest || cat.score < lowest.score) lowest = { key, score: cat.score, name: catNames[key] || key };
+                }
+                const chip = document.getElementById('chat-chip-score');
+                if (chip && lowest && lowest.score < 4.5) {
+                    chip.textContent = `Why is the ${lowest.name} score so low?`;
+                    chip.style.display = '';
+                } else if (chip) {
+                    chip.style.display = 'none';
+                }
+                const improveChip = document.getElementById('chat-chip-improve');
+                if (improveChip && lowest) {
+                    improveChip.textContent = `Explain their ${lowest.name} score and what they could do to improve it`;
+                    improveChip.style.display = '';
+                }
+            }
+
             // Overall
+            const nameHtml = data._url
+                ? `<a href="${data._url}" target="_blank" style="color:inherit;text-decoration:underline">${data._name || data._url}</a>`
+                : '';
+            const chatBtn = currentPolicyId
+                ? `<button class="chat-btn" onclick="document.getElementById('chat-panel').classList.add('open');document.getElementById('chat-messages').innerHTML='';">Chat about it</button>`
+                : '';
             document.getElementById('overall').innerHTML = `
                 <div class="score-circle" style="background:${color}">${data.overall_score.toFixed(1)}</div>
                 <div class="overall-text">
-                    <h2>Overall Privacy Score</h2>
+                    <h2>${nameHtml ? nameHtml + ' — ' : ''}Overall Privacy Score</h2>
                     <p>${data.overall_summary}</p>
                 </div>
+                ${chatBtn}
             `;
 
             // Categories
-            const catOrder = ['handling', 'user_control', 'transparency', 'collection_security'];
-            const catLabels = { handling: 'Handling', user_control: 'User Control', transparency: 'Transparency', collection_security: 'Collection & Security' };
+            const catOrder = ['handling', 'user_control', 'transparency', 'collection_security', 'ai'];
+            const catLabels = { handling: 'Data Sharing & Use', user_control: 'User Control', transparency: 'Transparency', collection_security: 'Collection & Security', ai: 'AI' };
             document.getElementById('categories').innerHTML = catOrder.map(key => {
                 const cat = data.categories[key];
                 const c = scoreColor(cat.score, 10);
@@ -444,6 +635,7 @@
             }).join('');
 
             document.getElementById('results').classList.add('active');
+            document.getElementById('disclaimer').classList.add('active');
         }
 
         async function loadReport(id) {
@@ -468,16 +660,17 @@
                 }
                 el.innerHTML = `<table class="history-table">
                     <thead><tr>
-                        <th>Policy</th><th>Overall</th><th>Handling</th>
-                        <th>User Ctrl</th><th>Transparency</th><th>Collect/Sec</th><th>Date</th>
+                        <th>Policy</th><th>Overall</th><th>Sharing</th>
+                        <th>User Ctrl</th><th>Transparency</th><th>Collect/Sec</th><th>AI</th><th>Date</th>
                     </tr></thead>
                     <tbody>${rows.map(r => `<tr data-id="${r.id}">
-                        <td>${r.url && r.url.startsWith('http') ? r.name : r.name}</td>
+                        <td>${r.url && r.url.startsWith('http') ? `<a href="${r.url}" target="_blank" onclick="event.stopPropagation()">${r.name}</a>` : r.name}</td>
                         <td class="score-cell" style="color:${scoreColor(r.overall_score, 10)}">${r.overall_score.toFixed(1)}</td>
                         <td class="score-cell" style="color:${scoreColor(r.handling, 10)}">${r.handling.toFixed(1)}</td>
                         <td class="score-cell" style="color:${scoreColor(r.user_control, 10)}">${r.user_control.toFixed(1)}</td>
                         <td class="score-cell" style="color:${scoreColor(r.transparency, 10)}">${r.transparency.toFixed(1)}</td>
                         <td class="score-cell" style="color:${scoreColor(r.collection_security, 10)}">${r.collection_security.toFixed(1)}</td>
+                        <td class="score-cell" style="color:${scoreColor(r.ai || 0, 10)}">${(r.ai || 0).toFixed(1)}</td>
                         <td class="date-cell">${r.date}</td>
                     </tr>`).join('')}</tbody>
                 </table>`;
@@ -527,6 +720,10 @@
             if (!file) return;
             const fd = new FormData();
             fd.append('file', file);
+            const name = document.getElementById('upload-name').value.trim();
+            const url = document.getElementById('upload-url').value.trim();
+            if (name) fd.append('name', name);
+            if (url) fd.append('source_url', url);
             analyze(() => fetch('/api/analyze/upload', { method: 'POST', body: fd }));
         });
 
@@ -556,6 +753,100 @@
                 rubricLoaded = true;
             } catch (e) {
                 document.getElementById('rubric-content').textContent = 'Failed to load rubric.';
+            }
+        });
+    </script>
+
+    <!-- Chat panel -->
+    <div class="chat-overlay" id="chat-panel">
+        <div class="chat-header">
+            <h3>Ask about this policy</h3>
+            <button class="chat-close" id="chat-close">&times;</button>
+        </div>
+        <div class="chat-chips" id="chat-chips">
+            <div class="chat-chip">Does it mention training on my data?</div>
+            <div class="chat-chip">What is the data retention policy?</div>
+            <div class="chat-chip">How are third parties handled?</div>
+            <div class="chat-chip">Can I delete my data?</div>
+            <div class="chat-chip">What data is collected?</div>
+            <div class="chat-chip" id="chat-chip-score"></div>
+            <div class="chat-chip" id="chat-chip-improve" style="display:none"></div>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="Ask a question about this policy..." />
+            <button class="chat-send" id="chat-send">Send</button>
+        </div>
+    </div>
+
+    <script>
+        function formatMd(text) {
+            return text
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                .replace(/`(.+?)`/g, '<code style="background:#f5f5f7;padding:0.1em 0.3em;border-radius:3px;font-size:0.85em">$1</code>')
+                .replace(/^### (.+)$/gm, '<strong style="font-size:0.95em">$1</strong>')
+                .replace(/^## (.+)$/gm, '<strong style="font-size:1em">$1</strong>')
+                .replace(/^- (.+)$/gm, '&bull; $1')
+                .replace(/^\d+\. (.+)$/gm, function(m, p1, offset, str) { return '&bull; ' + p1; })
+                .replace(/\n\n/g, '<br><br>')
+                .replace(/\n/g, '<br>');
+        }
+
+        let currentPolicyId = null;
+
+        document.getElementById('chat-close').addEventListener('click', () => {
+            document.getElementById('chat-panel').classList.remove('open');
+        });
+
+        document.querySelectorAll('.chat-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const input = document.getElementById('chat-input');
+                input.value = chip.textContent;
+                input.focus();
+            });
+        });
+
+        document.getElementById('chat-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') document.getElementById('chat-send').click();
+        });
+
+        document.getElementById('chat-send').addEventListener('click', async () => {
+            const input = document.getElementById('chat-input');
+            const question = input.value.trim();
+            if (!question || !currentPolicyId) return;
+
+            const msgs = document.getElementById('chat-messages');
+            msgs.innerHTML += `<div class="chat-msg user">${question}</div>`;
+            msgs.innerHTML += `<div class="chat-msg bot chat-thinking" id="chat-loading">Thinking...</div>`;
+            msgs.scrollTop = msgs.scrollHeight;
+            input.value = '';
+
+            const sendBtn = document.getElementById('chat-send');
+            sendBtn.disabled = true;
+
+            try {
+                const resp = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ policy_id: currentPolicyId, question })
+                });
+                const data = await resp.json();
+                const loading = document.getElementById('chat-loading');
+                if (loading) loading.remove();
+                if (resp.ok) {
+                    msgs.innerHTML += `<div class="chat-msg bot">${formatMd(data.answer)}</div>`;
+                } else {
+                    msgs.innerHTML += `<div class="chat-msg bot" style="color:#cc0000">${data.error || 'Something went wrong.'}</div>`;
+                }
+            } catch (e) {
+                const loading = document.getElementById('chat-loading');
+                if (loading) loading.remove();
+                msgs.innerHTML += `<div class="chat-msg bot" style="color:#cc0000">Request failed.</div>`;
+            } finally {
+                sendBtn.disabled = false;
+                msgs.scrollTop = msgs.scrollHeight;
             }
         });
     </script>
